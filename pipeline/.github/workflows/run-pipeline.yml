@@ -21,17 +21,19 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Anchor lane rates to realistic benchmark
+      - name: AI lane rate lookup (Groq, calibration-anchored, falls back to offline anchor)
         working-directory: pipeline
-        run: python anchor_benchmark_rates.py
-        # Replaces the old ai_rate_lookup.py (Groq/Grok) call, which was
-        # coming back systematically too low on Suez/Panama/Cape-exposed
-        # lanes -- especially USA (~$2-3.5k instead of the real ~$6-8k).
-        # See pipeline/anchor_benchmark_rates.py for the route-exposure
-        # multipliers. If you want the live LLM cross-check back, add
-        # GROQ_API_KEY as a repo secret and swap this step for
-        # `python ai_rate_lookup.py`, then re-check the USA numbers it
-        # returns before trusting them.
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: |
+          if [ -n "$GROQ_API_KEY" ]; then
+            python ai_rate_lookup.py --refresh
+          else
+            echo "No GROQ_API_KEY secret set -- using offline benchmark anchor instead."
+            echo "Add a free key at https://console.groq.com for the Groq-checked version"
+            echo "(every lane still gets a calibration-anchored value either way)."
+            python anchor_benchmark_rates.py
+          fi
 
       - name: Build report
         working-directory: pipeline

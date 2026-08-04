@@ -95,6 +95,7 @@ def build():
                 "ai_note": prof["note"],
                 "ai_provider": "benchmark_anchor",
                 "ai_model": "route-exposure-anchor-v1",
+                "ai_confidence": "calibration_fill",
                 "fetched_at": fetched_at,
             })
 

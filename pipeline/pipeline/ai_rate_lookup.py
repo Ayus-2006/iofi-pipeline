@@ -30,17 +30,27 @@ check on those guesses. It is still not a paid rate-benchmarking
 subscription or an actual carrier quote -- treat it as a better-informed
 planning estimate, same disclaimer the report already carries.
 
-PROVIDERS (both free, no credit card required)
-  - Groq   (default): https://console.groq.com -> free API key, fast, an
-            OpenAI-compatible /chat/completions endpoint.
-  - Gemini (fallback): https://aistudio.google.com/apikey -> free API key,
-            generous free-tier quota.
+PROVIDER: Groq (free, no credit card required)
+  https://console.groq.com -> free API key, fast, OpenAI-compatible
+  /chat/completions endpoint. Groq/Llama has NO live web search -- it only
+  recalls whatever was in its training data. To stop it from anchoring to
+  stale pre-2024 pricing (the original bug -- USA lanes reading $2-3k
+  against a real ~$6-8k market), every prompt includes hard current-market
+  calibration ranges per region (see REGION_CALIBRATION below), and any
+  answer that still lands far under the calibration floor is automatically
+  re-anchored to the calibration midpoint before being saved.
+
+FULL COVERAGE GUARANTEE
+Every origin x destination combination in data/origins.csv x
+data/destinations.csv gets a row in outputs/ai_lane_rates.csv -- if Groq
+skips a destination, returns a malformed row, or a whole chunk fails after
+retries, that combination is filled directly from REGION_CALIBRATION
+(midpoint of the range) instead of being left out. Nothing falls through.
 
 USAGE
   export GROQ_API_KEY=gsk_...
   cd pipeline
   python3 ai_rate_lookup.py                       # all lanes, chunked by region
-  python3 ai_rate_lookup.py --provider gemini      # use Gemini instead
   python3 ai_rate_lookup.py --refresh              # ignore cache, re-query everything
   python3 ai_rate_lookup.py --origin "ICD Tihi" --region "Africa / South America (Cape)"
                                                     # just re-check one slice
@@ -64,11 +74,6 @@ CACHE_PATH = os.path.join(OUT_DIR, "ai_lane_rates.csv")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL_DEFAULT = "llama-3.3-70b-versatile"
 
-GEMINI_URL_TMPL = (
-    "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
-)
-GEMINI_MODEL_DEFAULT = "gemini-2.0-flash"
-
 CHUNK_SIZE = 12          # destinations per LLM call
 SLEEP_BETWEEN_CALLS = 2  # seconds, be polite to free-tier rate limits
 MAX_RETRIES = 3
@@ -76,12 +81,13 @@ MAX_RETRIES = 3
 # Calibration anchors, USD/FEU, India -> destination region, current elevated
 # market (sustained Red Sea/Suez avoidance -> Cape of Good Hope rerouting,
 # Panama Canal draft restrictions, peak-season demand). These are the floor/
-# ceiling a well-informed analyst should land in -- NOT a hard rule, but the
-# free-tier model (Groq/Llama, xAI/Grok, etc.) kept anchoring to stale
-# pre-disruption pricing, especially on the long-haul lanes, so this gives it
-# a concrete, current reference point instead of whatever's baked into its
-# training data. Ranges came from a route-exposure benchmark pass -- see
-# anchor_benchmark_rates.py for the full methodology.
+# ceiling a well-informed analyst should land in -- NOT a hard rule, but Groq
+# kept anchoring to stale pre-disruption pricing, especially on the
+# long-haul lanes, so this gives it a concrete, current reference point
+# instead of whatever's baked into its training data, AND doubles as the
+# fill-in value for any lane the model skips entirely. Ranges came from a
+# route-exposure benchmark pass -- see anchor_benchmark_rates.py for the
+# full standalone (no-API-key) version of this same logic.
 REGION_CALIBRATION = {
     "Middle East":                          (850, 1100),
     "Red Sea / East Africa":                (1250, 1950),
@@ -94,6 +100,7 @@ REGION_CALIBRATION = {
     "Pacific (US West / Oceania)":          (2300, 6500),   # wide: US West Coast high, Australia/NZ/Canada much lower
     "Intra-Asia":                           (450, 1100),
 }
+DEFAULT_DECLINE_PCT = 8.0  # assumed 3-month softening when we have to fall back to a pure calibration fill
 
 
 def _prompt(origin_row, dest_rows, current_month_label, region=None):
@@ -174,34 +181,15 @@ def call_groq(prompt, api_key, model):
     return resp.json()["choices"][0]["message"]["content"]
 
 
-def call_gemini(prompt, api_key, model):
-    url = GEMINI_URL_TMPL.format(model=model, key=api_key)
-    resp = requests.post(
-        url,
-        json={
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": 0.2},
-        },
-        timeout=60,
-    )
-    resp.raise_for_status()
-    return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
-
-
-def call_llm(prompt, provider, api_key, model):
+def call_llm(prompt, api_key, model):
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            if provider == "groq":
-                raw = call_groq(prompt, api_key, model)
-            elif provider == "gemini":
-                raw = call_gemini(prompt, api_key, model)
-            else:
-                raise ValueError(f"Unknown provider: {provider}")
+            raw = call_groq(prompt, api_key, model)
             return _extract_json_array(raw)
         except Exception as e:
             print(f"    attempt {attempt}/{MAX_RETRIES} failed: {e}")
             if attempt == MAX_RETRIES:
-                raise
+                return None
             time.sleep(3 * attempt)
 
 
@@ -210,23 +198,47 @@ def chunks(seq, size):
         yield seq[i:i + size]
 
 
+def _calibration_fill_row(origin_row, drow, region, fetched_at, reason):
+    """Used whenever Groq skips a destination, returns a malformed row, or a
+    whole chunk fails after retries -- guarantees every origin x destination
+    combination still gets a row instead of silently dropping out."""
+    calib = REGION_CALIBRATION.get(region)
+    if calib:
+        lo, hi = calib
+        cur = (lo + hi) / 2
+    else:
+        cur = None
+    fc3 = round(cur * (1 - DEFAULT_DECLINE_PCT / 100), 0) if cur is not None else None
+    return {
+        "origin": origin_row["origin"],
+        "destination": drow["destination"],
+        "country": drow["country"],
+        "region": drow["region"],
+        "ai_current_rate_usd_feu": round(cur, 0) if cur is not None else None,
+        "ai_forecast_rate_usd_feu_3mo": fc3,
+        "ai_pct_change": round((fc3 - cur) / cur * 100, 1) if cur else None,
+        "ai_note": f"Calibration fill ({reason}) -- Groq did not return a usable value",
+        "ai_provider": "calibration_fill",
+        "ai_model": "region-calibration",
+        "ai_confidence": "calibration_fill",
+        "fetched_at": fetched_at,
+    }
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--provider", choices=["groq", "gemini"], default="groq")
     ap.add_argument("--model", default=None)
     ap.add_argument("--refresh", action="store_true", help="ignore cache, re-query every lane")
     ap.add_argument("--origin", default=None, help="only re-check this origin")
     ap.add_argument("--region", default=None, help="only re-check this destination region")
     args = ap.parse_args()
 
-    api_key = os.environ.get("GROQ_API_KEY") if args.provider == "groq" else os.environ.get("GEMINI_API_KEY")
+    api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
-        env_name = "GROQ_API_KEY" if args.provider == "groq" else "GEMINI_API_KEY"
-        print(f"ERROR: set {env_name} in your environment first (free key, no card needed).")
-        print("  Groq:   https://console.groq.com  ->  API Keys")
-        print("  Gemini: https://aistudio.google.com/apikey")
+        print("ERROR: set GROQ_API_KEY in your environment first (free key, no card needed).")
+        print("  https://console.groq.com  ->  API Keys")
         sys.exit(1)
-    model = args.model or (GROQ_MODEL_DEFAULT if args.provider == "groq" else GEMINI_MODEL_DEFAULT)
+    model = args.model or GROQ_MODEL_DEFAULT
 
     origins = pd.read_csv(f"{DATA_DIR}/origins.csv")
     dests = pd.read_csv(f"{DATA_DIR}/destinations.csv")
@@ -240,12 +252,14 @@ def main():
     cache = pd.read_csv(CACHE_PATH) if (os.path.exists(CACHE_PATH) and not args.refresh) else pd.DataFrame(
         columns=["origin", "destination", "country", "region", "ai_current_rate_usd_feu",
                  "ai_forecast_rate_usd_feu_3mo", "ai_pct_change", "ai_note", "ai_provider",
-                 "ai_model", "fetched_at"]
+                 "ai_model", "ai_confidence", "fetched_at"]
     )
     already_done = set(zip(cache["origin"], cache["destination"])) if not args.refresh else set()
 
     current_month_label = datetime.now(timezone.utc).strftime("%B %Y")
+    fetched_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     new_rows = []
+    n_from_model, n_from_calib_correction, n_from_calib_fill = 0, 0, 0
 
     for _, origin_row in origins.iterrows():
         for region, region_df in dests.groupby("region"):
@@ -255,35 +269,63 @@ def main():
             if pending.empty:
                 continue
             for chunk_df in chunks(pending, CHUNK_SIZE):
-                print(f"[{origin_row['origin']} -> {region}] querying {len(chunk_df)} destinations via {args.provider}...")
+                print(f"[{origin_row['origin']} -> {region}] querying {len(chunk_df)} destinations via groq...")
                 prompt = _prompt(origin_row, chunk_df, current_month_label, region=region)
-                try:
-                    results = call_llm(prompt, args.provider, api_key, model)
-                except Exception as e:
-                    print(f"  SKIPPED chunk after retries failed: {e}")
+                results = call_llm(prompt, api_key, model)
+                if results is None:
+                    print(f"  SKIPPED chunk after retries failed -- filling all {len(chunk_df)} "
+                          f"destinations from calibration instead.")
+                    for _, drow in chunk_df.iterrows():
+                        new_rows.append(_calibration_fill_row(origin_row, drow, region, fetched_at, "chunk failed"))
+                        n_from_calib_fill += 1
+                    time.sleep(SLEEP_BETWEEN_CALLS)
                     continue
+
                 by_dest = {r.get("destination"): r for r in results if isinstance(r, dict)}
                 calib = REGION_CALIBRATION.get(region)
-                calib_floor = calib[0] * 0.6 if calib else None  # 40% below floor = treat as a bad/stale answer
+                calib_floor = calib[0] * 0.6 if calib else None    # 40% below floor = stale/underselling
+                calib_ceiling = calib[1] * 1.6 if calib else None  # 60% above ceiling = implausible spike/overselling
+
                 for _, drow in chunk_df.iterrows():
                     r = by_dest.get(drow["destination"])
                     if not r:
-                        print(f"  missing '{drow['destination']}' in model response, skipping")
+                        print(f"  '{drow['destination']}' missing from model response -- filling from calibration")
+                        new_rows.append(_calibration_fill_row(origin_row, drow, region, fetched_at, "missing from response"))
+                        n_from_calib_fill += 1
                         continue
                     try:
                         cur = float(r["current_rate_usd_feu"])
                         fc3 = float(r["forecast_rate_usd_feu_3mo"])
                     except (KeyError, TypeError, ValueError):
-                        print(f"  malformed row for '{drow['destination']}', skipping")
+                        print(f"  malformed row for '{drow['destination']}' -- filling from calibration")
+                        new_rows.append(_calibration_fill_row(origin_row, drow, region, fetched_at, "malformed row"))
+                        n_from_calib_fill += 1
                         continue
+
+                    note = r.get("note", "")
                     if calib_floor and cur < calib_floor:
                         print(f"  '{drow['destination']}' came back ${cur:,.0f} -- below the "
                               f"${calib_floor:,.0f} sanity floor for {region}, model likely used "
-                              f"stale pricing. Re-anchoring to calibration midpoint.")
+                              f"stale pricing (underselling). Re-anchoring to calibration midpoint.")
                         lo, hi = calib
                         mid = (lo + hi) / 2
                         scale = mid / cur if cur else 1
                         cur, fc3 = mid, round(fc3 * scale, 0)
+                        note = f"{note} [re-anchored: model answer was below calibration floor]".strip()
+                        n_from_calib_correction += 1
+                    elif calib_ceiling and cur > calib_ceiling:
+                        print(f"  '{drow['destination']}' came back ${cur:,.0f} -- above the "
+                              f"${calib_ceiling:,.0f} sanity ceiling for {region}, likely an implausible "
+                              f"spike (overselling). Re-anchoring to calibration midpoint.")
+                        lo, hi = calib
+                        mid = (lo + hi) / 2
+                        scale = mid / cur if cur else 1
+                        cur, fc3 = mid, round(fc3 * scale, 0)
+                        note = f"{note} [re-anchored: model answer was above calibration ceiling]".strip()
+                        n_from_calib_correction += 1
+                    else:
+                        n_from_model += 1
+
                     new_rows.append({
                         "origin": origin_row["origin"],
                         "destination": drow["destination"],
@@ -292,10 +334,11 @@ def main():
                         "ai_current_rate_usd_feu": round(cur, 0),
                         "ai_forecast_rate_usd_feu_3mo": round(fc3, 0),
                         "ai_pct_change": round((fc3 - cur) / cur * 100, 1) if cur else None,
-                        "ai_note": r.get("note", ""),
-                        "ai_provider": args.provider,
+                        "ai_note": note,
+                        "ai_provider": "groq",
                         "ai_model": model,
-                        "fetched_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                        "ai_confidence": "model_verified" if "re-anchored" not in note else "model_corrected",
+                        "fetched_at": fetched_at,
                     })
                 time.sleep(SLEEP_BETWEEN_CALLS)
 
@@ -308,7 +351,14 @@ def main():
 
     os.makedirs(OUT_DIR, exist_ok=True)
     combined.to_csv(CACHE_PATH, index=False)
-    print(f"\nSaved {len(combined)} AI-sourced lane rates -> {CACHE_PATH}")
+    print(f"\nSaved {len(combined)} lane rates -> {CACHE_PATH}")
+    print(f"  verified as-is from Groq (within calibration band): {n_from_model}")
+    print(f"  Groq answer corrected (was below floor or above ceiling): {n_from_calib_correction}")
+    print(f"  filled straight from calibration (Groq gave nothing usable): {n_from_calib_fill}")
+    print("Every origin x destination combination in scope now has a row -- none skipped.")
+    print("Check the ai_confidence column: 'model_verified' = Groq's own number passed both the")
+    print("floor and ceiling sanity checks; 'model_corrected' = Groq answered but was pulled back")
+    print("into the realistic range; 'calibration_fill' = Groq gave nothing usable at all.")
     print("This file is independent of the statistical model. Re-run build_report_v2.py to fold it into the report.")
 
 
