@@ -147,8 +147,8 @@
     },
     "P25-P75": {
       "nominal_coverage_%": 50,
-      "observed_coverage_%": 75.0,
-      "n_inside": 6,
+      "observed_coverage_%": 62.5,
+      "n_inside": 5,
       "n_total_folds": 8
     },
     "_meta": {
