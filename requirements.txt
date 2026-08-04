@@ -1,0 +1,11 @@
+pandas
+numpy
+scikit-learn
+xgboost
+statsmodels
+shap
+scipy
+requests
+openpyxl
+reportlab
+xlrd>=2.0.1

@@ -1,0 +1,38 @@
+name: Run Freight Rate Pipeline
+
+on:
+  workflow_dispatch:      # lets you click "Run workflow" manually on GitHub
+  # schedule:
+  #   - cron: '0 6 * * 1' # optional: uncomment to run every Monday 6am UTC
+
+jobs:
+  build-report:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run AI rate lookup
+        working-directory: pipeline
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: python ai_rate_lookup.py
+
+      - name: Build report
+        working-directory: pipeline
+        run: python build_report_v2.py
+
+      - name: Upload report as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: freight-report
+          path: outputs/

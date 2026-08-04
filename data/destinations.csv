@@ -1,0 +1,61 @@
+port,country,region,route_exposure,base_rate_usd_feu,source_confidence
+Jebel Ali,UAE,Middle East,hormuz,868.0,calibrated
+Dammam,Saudi Arabia,Middle East,hormuz,946.0,calibrated
+Bandar Abbas,Iran,Middle East,hormuz,966.0,calibrated
+Kuwait City,Kuwait,Middle East,hormuz,862.0,calibrated
+Hamad Port (Doha),Qatar,Middle East,hormuz,842.0,calibrated
+Sohar,Oman,Middle East,hormuz,884.0,calibrated
+Jeddah,Saudi Arabia,Red Sea / East Africa,red_sea,1051.0,calibrated
+Port Sudan,Sudan,Red Sea / East Africa,red_sea,1505.0,calibrated
+Djibouti,Djibouti,Red Sea / East Africa,red_sea,1349.0,calibrated
+Aqaba,Jordan,Red Sea / East Africa,red_sea,1317.0,calibrated
+Suez,Egypt,Red Sea / East Africa,red_sea,1491.0,calibrated
+Piraeus,Greece,Europe (Mediterranean),suez,2311.0,calibrated
+Genoa,Italy,Europe (Mediterranean),suez,2452.0,calibrated
+Barcelona,Spain,Europe (Mediterranean),suez,2478.0,calibrated
+Marseille,France,Europe (Mediterranean),suez,2602.0,calibrated
+Valencia,Spain,Europe (Mediterranean),suez,2501.0,calibrated
+Gioia Tauro,Italy,Europe (Mediterranean),suez,2648.0,calibrated
+Ambarli (Istanbul),Turkey,Europe (Mediterranean),suez,2467.0,calibrated
+Rotterdam,Netherlands,Europe (North),suez,3120.0,sourced
+Hamburg,Germany,Europe (North),suez,3395.0,calibrated
+Antwerp,Belgium,Europe (North),suez,2975.0,calibrated
+Felixstowe,United Kingdom,Europe (North),suez,3072.0,calibrated
+Le Havre,France,Europe (North),suez,3196.0,calibrated
+New York/New Jersey,USA,US East Coast,suez_panama,3122.0,calibrated
+Savannah,USA,US East Coast,suez_panama,3068.0,calibrated
+Norfolk,USA,US East Coast,suez_panama,3267.0,calibrated
+Charleston,USA,US East Coast,suez_panama,3224.0,calibrated
+Baltimore,USA,US East Coast,suez_panama,3520.0,calibrated
+Houston,USA,US Gulf / Caribbean / Latin America,panama,3515.0,calibrated
+New Orleans,USA,US Gulf / Caribbean / Latin America,panama,3407.0,calibrated
+Cartagena,Colombia,US Gulf / Caribbean / Latin America,panama,2799.0,calibrated
+Balboa,Panama,US Gulf / Caribbean / Latin America,panama,2599.0,calibrated
+Kingston,Jamaica,US Gulf / Caribbean / Latin America,panama,2555.0,calibrated
+Lagos,Nigeria,Africa / South America (Cape),cape_route,2587.0,calibrated
+Tema,Ghana,Africa / South America (Cape),cape_route,2761.0,calibrated
+Durban,South Africa,Africa / South America (Cape),cape_route,2180.0,calibrated
+Cape Town,South Africa,Africa / South America (Cape),cape_route,2198.0,calibrated
+Santos,Brazil,Africa / South America (Cape),cape_route,2702.0,calibrated
+Buenos Aires,Argentina,Africa / South America (Cape),cape_route,3174.0,calibrated
+Mombasa,Kenya,Indian Ocean Rim,indian_ocean,773.0,calibrated
+Dar es Salaam,Tanzania,Indian Ocean Rim,indian_ocean,820.0,calibrated
+Colombo,Sri Lanka,Indian Ocean Rim,indian_ocean,556.0,calibrated
+Port Louis,Mauritius,Indian Ocean Rim,indian_ocean,992.0,calibrated
+Karachi,Pakistan,Indian Ocean Rim,indian_ocean,610.0,calibrated
+Los Angeles/Long Beach,USA,Pacific (US West / Oceania),pacific,2124.0,calibrated
+Oakland,USA,Pacific (US West / Oceania),pacific,2210.0,calibrated
+Seattle/Tacoma,USA,Pacific (US West / Oceania),pacific,2032.0,calibrated
+Vancouver,Canada,Pacific (US West / Oceania),pacific,2239.0,calibrated
+Melbourne,Australia,Pacific (US West / Oceania),pacific,1928.0,calibrated
+Sydney,Australia,Pacific (US West / Oceania),pacific,2105.0,calibrated
+Auckland,New Zealand,Pacific (US West / Oceania),pacific,2026.0,calibrated
+Singapore,Singapore,Intra-Asia,intra_asia,480.0,sourced
+Port Klang,Malaysia,Intra-Asia,intra_asia,447.0,calibrated
+Laem Chabang,Thailand,Intra-Asia,intra_asia,570.0,calibrated
+Ho Chi Minh City (Cat Lai),Vietnam,Intra-Asia,intra_asia,602.0,calibrated
+Shanghai,China,Intra-Asia,intra_asia,723.0,calibrated
+Ningbo,China,Intra-Asia,intra_asia,812.0,calibrated
+Yantian (Shenzhen),China,Intra-Asia,intra_asia,737.0,calibrated
+Busan,South Korea,Intra-Asia,intra_asia,937.0,calibrated
+Yokohama,Japan,Intra-Asia,intra_asia,950.0,calibrated

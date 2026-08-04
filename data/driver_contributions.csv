@@ -1,0 +1,11 @@
+driver,weight,current_zscore,index_points_contribution
+brent_usd_bbl,0.14,2.741,14.72
+gpr_index,0.14,3.01,13.68
+war_risk_premium_idx,0.14,3.041,12.87
+congestion_index,0.14,2.644,12.12
+vessel_idle_capacity_pct,0.09,2.816,7.38
+inr_usd_rate,0.06,2.04,5.68
+eu_ets_carbon_idx,0.05,1.5,4.19
+usd_index,0.08,0.549,-0.32
+trade_volume_growth_idx,0.09,-1.303,-1.83
+panama_restriction_idx,0.07,-1.073,-5.83
