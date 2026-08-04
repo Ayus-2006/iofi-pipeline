@@ -188,6 +188,7 @@ def main():
 
     origins = pd.read_csv(f"{DATA_DIR}/origins.csv")
     dests = pd.read_csv(f"{DATA_DIR}/destinations.csv")
+    dests = dests.rename(columns={"port": "destination"})
 
     if args.origin:
         origins = origins[origins["origin"] == args.origin]
