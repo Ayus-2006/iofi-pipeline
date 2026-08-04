@@ -1,0 +1,184 @@
+{
+  "iofi_current": 162.66,
+  "future_months": [
+    "2026-08",
+    "2026-09",
+    "2026-10"
+  ],
+  "iofi_ensemble_path": [
+    165.23146633495844,
+    166.63937380908024,
+    168.378694824951
+  ],
+  "driver_forecast_models": {
+    "brent_usd_bbl": "ETS",
+    "war_risk_premium_idx": "ETS",
+    "gpr_index": "ETS",
+    "congestion_index": "ETS",
+    "vessel_idle_capacity_pct": "ETS",
+    "trade_volume_growth_idx": "ETS",
+    "usd_index": "ETS",
+    "inr_usd_rate": "ETS",
+    "panama_restriction_idx": "ETS",
+    "eu_ets_carbon_idx": "ETS",
+    "china_pmi_idx": "ETS",
+    "china_export_container_idx": "ETS"
+  },
+  "top_driver_weights": [
+    {
+      "feature": "war_risk_premium_idx",
+      "ridge_weight": 0.019326826227954414,
+      "elasticnet_weight": 0.03670021048487275,
+      "bayesian_weight": 0.01902304175643908,
+      "xgb_importance_raw": 0.23482905328273773,
+      "ensemble_weight": 0.04305742917238105
+    },
+    {
+      "feature": "int_gpr_congestion",
+      "ridge_weight": 0.02177942879917286,
+      "elasticnet_weight": 0.09082184309029324,
+      "bayesian_weight": 0.02195251570597513,
+      "xgb_importance_raw": 0.01811883971095085,
+      "ensemble_weight": 0.042552672232283
+    },
+    {
+      "feature": "brent_usd_bbl",
+      "ridge_weight": 0.013201349952047732,
+      "elasticnet_weight": 0.0,
+      "bayesian_weight": 0.012746798654375285,
+      "xgb_importance_raw": 0.38224396109580994,
+      "ensemble_weight": 0.04077295146994625
+    },
+    {
+      "feature": "gpr_index",
+      "ridge_weight": 0.020169013240421592,
+      "elasticnet_weight": 0.06391181248984476,
+      "bayesian_weight": 0.020063128633414654,
+      "xgb_importance_raw": 0.10274163633584976,
+      "ensemble_weight": 0.04056395864636527
+    },
+    {
+      "feature": "vessel_idle_capacity_pct_rollmean3",
+      "ridge_weight": 0.019285859428451138,
+      "elasticnet_weight": 0.05903029418789889,
+      "bayesian_weight": 0.019005927447968595,
+      "xgb_importance_raw": 0.03487445414066315,
+      "ensemble_weight": 0.03264996069730307
+    },
+    {
+      "feature": "congestion_index_rollstd3",
+      "ridge_weight": 0.019198482444429718,
+      "elasticnet_weight": 0.0642794729335066,
+      "bayesian_weight": 0.019345391582894587,
+      "xgb_importance_raw": 1.3034842595516238e-05,
+      "ensemble_weight": 0.03132847769622845
+    },
+    {
+      "feature": "war_risk_premium_idx_rollmean3",
+      "ridge_weight": 0.019729321559973104,
+      "elasticnet_weight": 0.05656822644696109,
+      "bayesian_weight": 0.01957915824566949,
+      "xgb_importance_raw": 0.00017541937995702028,
+      "ensemble_weight": 0.029225995987888487
+    },
+    {
+      "feature": "gpr_index_rollstd3",
+      "ridge_weight": 0.017869738873224624,
+      "elasticnet_weight": 0.05774734549267991,
+      "bayesian_weight": 0.017589379140609655,
+      "xgb_importance_raw": 8.09639550425345e-06,
+      "ensemble_weight": 0.028398061489591585
+    },
+    {
+      "feature": "gpr_index_rollmean3",
+      "ridge_weight": 0.01852164294468381,
+      "elasticnet_weight": 0.044114909799581076,
+      "bayesian_weight": 0.018336831024040153,
+      "xgb_importance_raw": 0.03424176201224327,
+      "ensemble_weight": 0.027614574346135432
+    },
+    {
+      "feature": "gpr_index_mom1",
+      "ridge_weight": 0.01745779562105555,
+      "elasticnet_weight": 0.041326009568640014,
+      "bayesian_weight": 0.017382640402261066,
+      "xgb_importance_raw": 0.003696993924677372,
+      "ensemble_weight": 0.02352364166706389
+    }
+  ],
+  "backtest_metrics": {
+    "learned_model": {
+      "MAPE": 2.932,
+      "MAPE_CI95_lower": 1.29,
+      "MAPE_CI95_upper": 4.92,
+      "MAE": 4.09,
+      "RMSE": 6.021,
+      "DirectionalAccuracy_%": 87.5
+    },
+    "naive_persistence": {
+      "MAPE": 6.28,
+      "MAPE_CI95_lower": 2.97,
+      "MAPE_CI95_upper": 10.1,
+      "MAE": 8.51,
+      "RMSE": 11.882,
+      "DirectionalAccuracy_%": 0.0
+    },
+    "moving_avg_3": {
+      "MAPE": 9.146,
+      "MAPE_CI95_lower": 3.88,
+      "MAPE_CI95_upper": 14.7,
+      "MAE": 13.305,
+      "RMSE": 18.788,
+      "DirectionalAccuracy_%": 62.5
+    },
+    "_meta": {
+      "n_total_obs": 22,
+      "n_train_initial": 14,
+      "n_folds": 8,
+      "note": "Backtest trained on an expanding window starting at 14 months and evaluated walk-forward over the remaining 8 months. With this few folds, treat point MAPE/RMSE as directional, not precise -- see MAPE_CI95 for the bootstrap-estimated range around each headline number."
+    }
+  },
+  "interval_calibration": {
+    "P5-P95": {
+      "nominal_coverage_%": 90,
+      "observed_coverage_%": 100.0,
+      "n_inside": 8,
+      "n_total_folds": 8
+    },
+    "P25-P75": {
+      "nominal_coverage_%": 50,
+      "observed_coverage_%": 62.5,
+      "n_inside": 5,
+      "n_total_folds": 8
+    },
+    "_meta": {
+      "note": "Calibration estimated over 8 walk-forward folds -- small-sample, so read the observed coverage rate as directional (badly miscalibrated vs. roughly on-target), not as a precise percentage."
+    }
+  },
+  "xgb_reliability": {
+    "n_training_obs": 22,
+    "shrinkage_weight_applied": 0.282,
+    "min_reliable_n": 15,
+    "full_reliable_n": 60,
+    "rationale": "XGBoost is the only estimator in the ensemble that can capture nonlinear driver interactions without those interactions being hand-specified, so it is retained rather than dropped -- but at n=22 training rows its ensemble vote is scaled by 0.28x (full weight requires n>=60) so a handful of boosted-tree splits cannot dominate a ranking the linear/Bayesian models don't support. Raw (unshrunk) XGBoost importances are kept in xgb_importance_raw for transparency."
+  },
+  "lane_cluster_k": 7,
+  "lane_cluster_silhouette": 0.735,
+  "n_training_months": 22,
+  "n_regions": 10,
+  "n_driver_cols": 12,
+  "driver_cols": [
+    "brent_usd_bbl",
+    "war_risk_premium_idx",
+    "gpr_index",
+    "congestion_index",
+    "vessel_idle_capacity_pct",
+    "trade_volume_growth_idx",
+    "usd_index",
+    "inr_usd_rate",
+    "panama_restriction_idx",
+    "eu_ets_carbon_idx",
+    "china_pmi_idx",
+    "china_export_container_idx"
+  ]
+}

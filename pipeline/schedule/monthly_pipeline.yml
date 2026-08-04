@@ -1,0 +1,44 @@
+# Put this file at .github/workflows/monthly_pipeline.yml in your repo to
+# get true "set and forget" monthly runs -- GitHub's servers have normal
+# internet access, so the live fetches in data_sources.py will actually
+# reach FRED/GPR/CPB/Ember/IMF PortWatch/OECD, unlike a sandboxed dev
+# environment. Data and outputs are committed straight back to the repo.
+#
+# This still can't fill in the one manual step: your own observed IOFI
+# value / lane rates each month (record_observed_month.py). Nothing
+# public can supply your own proprietary index for you.
+name: IOFI monthly refresh
+
+on:
+  schedule:
+    - cron: "0 6 2 * *"   # 06:00 UTC on the 2nd of every month
+  workflow_dispatch: {}     # lets you trigger a run manually from the Actions tab
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run pipeline (live macro fetch + retrain + report)
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: |
+          cd pipeline
+          python3 pipeline_runner.py
+          python3 build_report_v2.py
+
+      - name: Commit refreshed data + outputs
+        run: |
+          git config user.name "iofi-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/macro_history.csv outputs/
+          git diff --cached --quiet || git commit -m "Monthly auto-refresh: $(date -u +%Y-%m)"
+          git push

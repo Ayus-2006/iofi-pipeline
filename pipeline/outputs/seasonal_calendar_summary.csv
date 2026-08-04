@@ -1,0 +1,11 @@
+region,2026-08_seasonal_pct,2026-08_events,2026-09_seasonal_pct,2026-09_events,2026-10_seasonal_pct,2026-10_events
+Africa / South America (Cape),0.0,-,0.0,-,0.45,diwali
+Europe (Mediterranean),0.0,-,0.0,-,0.0,-
+Europe (North),0.0,-,0.0,-,0.0,-
+Indian Ocean Rim,0.3,ganesh_chaturthi,0.0,-,1.57,diwali
+Intra-Asia,0.0,-,0.0,-,1.4,golden_week
+Middle East,0.0,-,0.0,-,0.0,-
+Pacific (US West / Oceania),0.0,-,1.75,us_import_season_peak,0.0,-
+Red Sea / East Africa,0.0,-,0.0,-,0.0,-
+US East Coast,0.0,-,1.75,us_import_season_peak,0.0,-
+US Gulf / Caribbean / Latin America,0.0,-,1.5,us_import_season_peak,0.0,-
