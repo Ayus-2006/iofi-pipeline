@@ -73,14 +73,54 @@ CHUNK_SIZE = 12          # destinations per LLM call
 SLEEP_BETWEEN_CALLS = 2  # seconds, be polite to free-tier rate limits
 MAX_RETRIES = 3
 
+# Calibration anchors, USD/FEU, India -> destination region, current elevated
+# market (sustained Red Sea/Suez avoidance -> Cape of Good Hope rerouting,
+# Panama Canal draft restrictions, peak-season demand). These are the floor/
+# ceiling a well-informed analyst should land in -- NOT a hard rule, but the
+# free-tier model (Groq/Llama, xAI/Grok, etc.) kept anchoring to stale
+# pre-disruption pricing, especially on the long-haul lanes, so this gives it
+# a concrete, current reference point instead of whatever's baked into its
+# training data. Ranges came from a route-exposure benchmark pass -- see
+# anchor_benchmark_rates.py for the full methodology.
+REGION_CALIBRATION = {
+    "Middle East":                          (850, 1100),
+    "Red Sea / East Africa":                (1250, 1950),
+    "Europe (Mediterranean)":               (3400, 4300),
+    "Europe (North)":                       (4300, 5500),
+    "US East Coast":                        (6500, 8200),
+    "US Gulf / Caribbean / Latin America":  (5000, 8000),   # wide: US ports run high, non-US (Cartagena/Balboa/Kingston) lower
+    "Africa / South America (Cape)":        (3000, 4800),
+    "Indian Ocean Rim":                     (550, 1100),
+    "Pacific (US West / Oceania)":          (2300, 6500),   # wide: US West Coast high, Australia/NZ/Canada much lower
+    "Intra-Asia":                           (450, 1100),
+}
 
-def _prompt(origin_row, dest_rows, current_month_label):
+
+def _prompt(origin_row, dest_rows, current_month_label, region=None):
     origin = origin_row["origin"]
     gateway = origin_row["gateway_port"]
     lines = "\n".join(
         f'- {{"destination": "{r.destination}", "country": "{r.country}"}}'
         for r in dest_rows.itertuples()
     )
+    calib = REGION_CALIBRATION.get(region)
+    calib_block = ""
+    if calib:
+        lo, hi = calib
+        calib_block = f"""
+CALIBRATION CONTEXT (important -- do not ignore): informed market estimates
+for India -> {region} on this lane type are currently running roughly
+${lo:,}-${hi:,} per FEU, driven by sustained Red Sea/Suez avoidance (ships
+diverting via the Cape of Good Hope, adding ~3,000nm and 10-14 days),
+Panama Canal draft restrictions, and peak-season demand. If your instinct is
+to answer well below this range, that instinct is pulling from stale
+pre-2024 pricing baked into your training data -- override it and reason
+from the current elevated market instead. Not every destination in this
+region will land at the same point in the range (e.g. USA ports run at the
+high end, non-US ports on a shared "US Gulf" or "Pacific" grouping route can
+run lower) -- use judgment per destination, but do not default to
+pre-disruption pricing.
+"""
     return f"""You are an ocean freight market analyst. For 40ft container (FEU) spot
 market ocean freight rates ORIGINATING FROM INDIA ({origin}, gateway port {gateway}),
 give your best realistic current-market estimate, and a separate 3-month-ahead
@@ -88,7 +128,7 @@ estimate, for EACH destination listed below. Base this on your knowledge of
 recent freight market levels, typical trade-lane pricing patterns, seasonality,
 and any known disruptions (Red Sea/Suez rerouting, Panama Canal, Cape of Good
 Hope diversions, peak season, etc.) as of {current_month_label}.
-
+{calib_block}
 Destinations:
 {lines}
 
@@ -104,7 +144,9 @@ destination, in this exact shape:
 ]
 Use plain integers (no $ sign, no commas). If you are not confident, still give
 your best reasoned estimate rather than omitting a destination -- every
-destination in the list must appear exactly once in your answer."""
+destination in the list must appear exactly once in your answer. Do not
+under-anchor to outdated pre-disruption rates -- use the calibration context
+above as your primary reference point when it's provided."""
 
 
 def _extract_json_array(text):
@@ -214,13 +256,15 @@ def main():
                 continue
             for chunk_df in chunks(pending, CHUNK_SIZE):
                 print(f"[{origin_row['origin']} -> {region}] querying {len(chunk_df)} destinations via {args.provider}...")
-                prompt = _prompt(origin_row, chunk_df, current_month_label)
+                prompt = _prompt(origin_row, chunk_df, current_month_label, region=region)
                 try:
                     results = call_llm(prompt, args.provider, api_key, model)
                 except Exception as e:
                     print(f"  SKIPPED chunk after retries failed: {e}")
                     continue
                 by_dest = {r.get("destination"): r for r in results if isinstance(r, dict)}
+                calib = REGION_CALIBRATION.get(region)
+                calib_floor = calib[0] * 0.6 if calib else None  # 40% below floor = treat as a bad/stale answer
                 for _, drow in chunk_df.iterrows():
                     r = by_dest.get(drow["destination"])
                     if not r:
@@ -232,6 +276,14 @@ def main():
                     except (KeyError, TypeError, ValueError):
                         print(f"  malformed row for '{drow['destination']}', skipping")
                         continue
+                    if calib_floor and cur < calib_floor:
+                        print(f"  '{drow['destination']}' came back ${cur:,.0f} -- below the "
+                              f"${calib_floor:,.0f} sanity floor for {region}, model likely used "
+                              f"stale pricing. Re-anchoring to calibration midpoint.")
+                        lo, hi = calib
+                        mid = (lo + hi) / 2
+                        scale = mid / cur if cur else 1
+                        cur, fc3 = mid, round(fc3 * scale, 0)
                     new_rows.append({
                         "origin": origin_row["origin"],
                         "destination": drow["destination"],
