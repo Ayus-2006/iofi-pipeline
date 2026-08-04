@@ -31,16 +31,24 @@ subscription or an actual carrier quote -- treat it as a better-informed
 planning estimate, same disclaimer the report already carries.
 
 PROVIDERS (both free, no credit card required)
-  - Groq   (default): https://console.groq.com -> free API key, fast, an
-            OpenAI-compatible /chat/completions endpoint.
-  - Gemini (fallback): https://aistudio.google.com/apikey -> free API key,
-            generous free-tier quota.
+  - Gemini (default): https://aistudio.google.com/apikey -> free API key.
+            Supports Google Search grounding, so it actually searches the
+            live web (freight news, GRI announcements, index reports) before
+            answering instead of only recalling training data. This is the
+            "deep research" mode and is what fixes systematically-stale
+            numbers (e.g. USA lanes reading $2-3k when the real market is
+            $6-8k) -- the model checks current sources instead of guessing.
+  - Groq   (fallback): https://console.groq.com -> free API key, fast, an
+            OpenAI-compatible /chat/completions endpoint. NO live search --
+            pure recall from training data plus whatever calibration ranges
+            are baked into the prompt. Use only if Gemini is unavailable.
 
 USAGE
-  export GROQ_API_KEY=gsk_...
+  export GEMINI_API_KEY=...
   cd pipeline
-  python3 ai_rate_lookup.py                       # all lanes, chunked by region
-  python3 ai_rate_lookup.py --provider gemini      # use Gemini instead
+  python3 ai_rate_lookup.py                       # all lanes, grounded/researched, chunked by region
+  python3 ai_rate_lookup.py --no-research          # gemini without search grounding (faster, less accurate)
+  python3 ai_rate_lookup.py --provider groq        # fallback, no live search at all
   python3 ai_rate_lookup.py --refresh              # ignore cache, re-query everything
   python3 ai_rate_lookup.py --origin "ICD Tihi" --region "Africa / South America (Cape)"
                                                     # just re-check one slice
@@ -121,13 +129,18 @@ high end, non-US ports on a shared "US Gulf" or "Pacific" grouping route can
 run lower) -- use judgment per destination, but do not default to
 pre-disruption pricing.
 """
-    return f"""You are an ocean freight market analyst. For 40ft container (FEU) spot
-market ocean freight rates ORIGINATING FROM INDIA ({origin}, gateway port {gateway}),
-give your best realistic current-market estimate, and a separate 3-month-ahead
-estimate, for EACH destination listed below. Base this on your knowledge of
-recent freight market levels, typical trade-lane pricing patterns, seasonality,
-and any known disruptions (Red Sea/Suez rerouting, Panama Canal, Cape of Good
-Hope diversions, peak season, etc.) as of {current_month_label}.
+    return f"""You are an ocean freight market analyst doing real research, not
+guessing from memory. Before answering, search for current India-origin
+ocean freight spot rates, carrier General Rate Increase (GRI) announcements,
+and freight index reports (e.g. Freightos FBX, Xeneta, Drewry WCI coverage,
+shipping-line advisories) relevant to each destination below. For 40ft
+container (FEU) spot market ocean freight rates ORIGINATING FROM INDIA
+({origin}, gateway port {gateway}), give your best realistic current-market
+estimate grounded in what you find, and a separate 3-month-ahead estimate,
+for EACH destination listed below. Weigh recent freight market levels,
+typical trade-lane pricing patterns, seasonality, and any known disruptions
+(Red Sea/Suez rerouting, Panama Canal, Cape of Good Hope diversions, peak
+season, etc.) as of {current_month_label}.
 {calib_block}
 Destinations:
 {lines}
@@ -174,30 +187,51 @@ def call_groq(prompt, api_key, model):
     return resp.json()["choices"][0]["message"]["content"]
 
 
-def call_gemini(prompt, api_key, model):
+def call_gemini(prompt, api_key, model, grounded=True):
+    """
+    grounded=True attaches Gemini's "Google Search" tool, so the model
+    actually issues live web searches and reads real pages before answering
+    (current freight-rate news, index reports, carrier GRIs, etc.) instead
+    of only recalling whatever pricing was baked into its training data.
+    This is the "deep research" mode. Set grounded=False to fall back to
+    plain recall (faster, but no live lookups).
+    """
     url = GEMINI_URL_TMPL.format(model=model, key=api_key)
-    resp = requests.post(
-        url,
-        json={
-            "contents": [{"parts": [{"text": prompt}]}],
-            "generationConfig": {"temperature": 0.2},
-        },
-        timeout=60,
-    )
+    body = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"temperature": 0.2},
+    }
+    if grounded:
+        body["tools"] = [{"google_search": {}}]
+    resp = requests.post(url, json=body, timeout=90)
     resp.raise_for_status()
-    return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+    data = resp.json()
+    candidate = data["candidates"][0]
+    text = "".join(p.get("text", "") for p in candidate["content"]["parts"])
+    n_sources = 0
+    grounding_meta = candidate.get("groundingMetadata") or {}
+    if grounding_meta:
+        n_sources = len(grounding_meta.get("groundingChunks", []) or [])
+        queries = grounding_meta.get("webSearchQueries", []) or []
+        if queries:
+            print(f"    searched: {queries}")
+    if grounded and n_sources == 0:
+        print("    WARNING: grounding was requested but no search sources came back "
+              "-- treat this chunk's numbers as ungrounded recall, not researched.")
+    return text, n_sources
 
 
-def call_llm(prompt, provider, api_key, model):
+def call_llm(prompt, provider, api_key, model, grounded=True):
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             if provider == "groq":
                 raw = call_groq(prompt, api_key, model)
+                n_sources = 0
             elif provider == "gemini":
-                raw = call_gemini(prompt, api_key, model)
+                raw, n_sources = call_gemini(prompt, api_key, model, grounded=grounded)
             else:
                 raise ValueError(f"Unknown provider: {provider}")
-            return _extract_json_array(raw)
+            return _extract_json_array(raw), n_sources
         except Exception as e:
             print(f"    attempt {attempt}/{MAX_RETRIES} failed: {e}")
             if attempt == MAX_RETRIES:
@@ -212,12 +246,18 @@ def chunks(seq, size):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--provider", choices=["groq", "gemini"], default="groq")
+    ap.add_argument("--provider", choices=["groq", "gemini"], default="gemini",
+                     help="gemini (default) supports real web-search grounding -- "
+                          "'deep research' before answering. groq is plain recall, "
+                          "no live lookups, kept only as a fallback.")
     ap.add_argument("--model", default=None)
     ap.add_argument("--refresh", action="store_true", help="ignore cache, re-query every lane")
     ap.add_argument("--origin", default=None, help="only re-check this origin")
     ap.add_argument("--region", default=None, help="only re-check this destination region")
+    ap.add_argument("--no-research", action="store_true",
+                     help="gemini only: disable Google Search grounding, use plain recall (faster, less accurate)")
     args = ap.parse_args()
+    grounded = (args.provider == "gemini") and not args.no_research
 
     api_key = os.environ.get("GROQ_API_KEY") if args.provider == "groq" else os.environ.get("GEMINI_API_KEY")
     if not api_key:
@@ -225,8 +265,16 @@ def main():
         print(f"ERROR: set {env_name} in your environment first (free key, no card needed).")
         print("  Groq:   https://console.groq.com  ->  API Keys")
         print("  Gemini: https://aistudio.google.com/apikey")
+        if args.provider == "groq":
+            print("  NOTE: Groq/Llama has no live web search -- it can only recall training data")
+            print("        plus the calibration anchors baked into the prompt. For actual live")
+            print("        research (real current rates, not recall), use --provider gemini.")
         sys.exit(1)
     model = args.model or (GROQ_MODEL_DEFAULT if args.provider == "groq" else GEMINI_MODEL_DEFAULT)
+    if args.provider == "gemini" and grounded:
+        print(f"Deep research mode ON: {model} will search the live web (Google Search grounding) "
+              f"before answering each chunk. This is slower and uses more of your free-tier quota "
+              f"than plain recall -- use --no-research to disable if you hit quota limits.")
 
     origins = pd.read_csv(f"{DATA_DIR}/origins.csv")
     dests = pd.read_csv(f"{DATA_DIR}/destinations.csv")
@@ -240,7 +288,7 @@ def main():
     cache = pd.read_csv(CACHE_PATH) if (os.path.exists(CACHE_PATH) and not args.refresh) else pd.DataFrame(
         columns=["origin", "destination", "country", "region", "ai_current_rate_usd_feu",
                  "ai_forecast_rate_usd_feu_3mo", "ai_pct_change", "ai_note", "ai_provider",
-                 "ai_model", "fetched_at"]
+                 "ai_model", "ai_n_sources", "fetched_at"]
     )
     already_done = set(zip(cache["origin"], cache["destination"])) if not args.refresh else set()
 
@@ -255,13 +303,16 @@ def main():
             if pending.empty:
                 continue
             for chunk_df in chunks(pending, CHUNK_SIZE):
-                print(f"[{origin_row['origin']} -> {region}] querying {len(chunk_df)} destinations via {args.provider}...")
+                print(f"[{origin_row['origin']} -> {region}] querying {len(chunk_df)} destinations via {args.provider}"
+                      f"{' (grounded/researched)' if grounded else ''}...")
                 prompt = _prompt(origin_row, chunk_df, current_month_label, region=region)
                 try:
-                    results = call_llm(prompt, args.provider, api_key, model)
+                    results, n_sources = call_llm(prompt, args.provider, api_key, model, grounded=grounded)
                 except Exception as e:
                     print(f"  SKIPPED chunk after retries failed: {e}")
                     continue
+                if grounded:
+                    print(f"    grounded on {n_sources} live search source(s)")
                 by_dest = {r.get("destination"): r for r in results if isinstance(r, dict)}
                 calib = REGION_CALIBRATION.get(region)
                 calib_floor = calib[0] * 0.6 if calib else None  # 40% below floor = treat as a bad/stale answer
@@ -293,8 +344,9 @@ def main():
                         "ai_forecast_rate_usd_feu_3mo": round(fc3, 0),
                         "ai_pct_change": round((fc3 - cur) / cur * 100, 1) if cur else None,
                         "ai_note": r.get("note", ""),
-                        "ai_provider": args.provider,
+                        "ai_provider": args.provider + ("+search" if grounded else ""),
                         "ai_model": model,
+                        "ai_n_sources": n_sources,
                         "fetched_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                     })
                 time.sleep(SLEEP_BETWEEN_CALLS)
